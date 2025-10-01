@@ -1,0 +1,23 @@
+# Node / backend
+node_modules/
+.env
+coverage/
+dist/
+
+# Mobile
+*.keystore
+*.jks
+*.ipa
+*.apk
+Pods/
+build/
+
+# Experiments
+experiments/**/logs/
+experiments/**/results/*.raw.json
+experiments/**/results/*.pcap
+
+# Misc
+.DS_Store
+.vscode/
+.idea/
