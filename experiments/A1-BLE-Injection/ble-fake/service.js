@@ -1,9 +1,9 @@
-const {PrimaryService} = require('bleno');
+const { PrimaryService } = require('@abandonware/bleno');
 const MeasurementCharacteristic = require('./characteristic')
 
-module.exports = function makeService(serviceUuid, charUuid){
+module.exports = function makeService(serviceUuid, charUuid) {
     return new PrimaryService({
-        uuid: serviceUuid, 
-        characteristics:[new MeasurementCharacteristic({uuid: charUuid})]
+        uuid: serviceUuid,
+        characteristics: [new MeasurementCharacteristic({ uuid: charUuid })]
     });
 };
