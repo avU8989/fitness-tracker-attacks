@@ -1,0 +1,6 @@
+[submodule "backend"]
+	path = backend
+	url = https://github.com/avU8989/fitness_tracker.git
+[submodule "frontend"]
+	path = frontend
+	url = https://github.com/avU8989/fitness_tracker.git

@@ -19,3 +19,6 @@ meanwhile do a btmon scan look for advertiser service uuids and char uuids --> y
 **Mitigation run*
 
 **Metrics**
+
+**How to run the program**
+sudo node index.js --name "HeartRate" --service "180d" --char "2a37"
