@@ -67,7 +67,10 @@ bleno.on('advertisingStart', (err) => {
 })
 
 //graceful shutdown
+let shuttingDown = false;
 process.on('SIGINT', () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log('\n[exit] stopping advertising…');
   bleno.stopAdvertising(() => process.exit(0));
 });
