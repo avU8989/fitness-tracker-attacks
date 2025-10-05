@@ -1,10 +1,24 @@
 const { Characteristic, Descriptor } = require('@abandonware/bleno');
-
+const fs = require('fs');
 
 const MAX_HEARTRATE = 250;
 const MIN_HEARTRATE = 70;
 const MAX_HEARTRATE_RAMP = 160;
 const MIN_HEARTRATE_RAMP = 40;
+const logPath = './logs/peripheral_sent.csv';
+
+//does logs dir exist
+fs.mkdirSync('./logs', { recursive: true });
+
+const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+
+try {
+    if (fs.statSync(logPath).size === 0) {
+        logStream.write('seq,send_ts_ms,hr,payload_hex\n');
+    }
+} catch (e) {
+    logStream.write('seq,send_ts_ms,hr,payload_hex\n');
+}
 
 class HeartRateMeasurementCharacteristic extends Characteristic {
     constructor({ uuid }) {
@@ -16,7 +30,7 @@ class HeartRateMeasurementCharacteristic extends Characteristic {
 
         this.intervalMs = 500;
         this.seq = 0;
-        this.hr = 80;
+        this.hr = 200;
         this.dir = +1;
         this.timer = null;
         this.manualHr = null;
@@ -71,7 +85,7 @@ class HeartRateMeasurementCharacteristic extends Characteristic {
                 //data is ASCII "120"
                 const formattedValueInText = data.toString('utf-8').trim();
                 const formattedValueInNumber = Number(formattedValueInText);
-                if (!Number.isFinite(formattedValueInNumber)) {
+                if (Number.isFinite(formattedValueInNumber)) {
                     val = formattedValueInNumber;
                 }
             }
@@ -91,7 +105,18 @@ class HeartRateMeasurementCharacteristic extends Characteristic {
             clearInterval(this.timer);
         }
 
-        this.timer = setInterval(() => updateValueCallback(this._payload()), this.intervalMs);
+        this.timer = setInterval(() => {
+            const payload = this._payload();
+            updateValueCallback(payload);
+
+            // Logging
+            const ts = Date.now();
+            const hr = this.hr;
+            const hex = payload.toString('hex');
+
+            logStream.write(`${this.seq},${ts},${hr},${hex}\n`);
+            console.log(`[send] seq=${this.seq} ts=${ts} hr=${hr} hex=${hex}`);
+        }, this.intervalMs);
     }
 
     onUnsubscribe() {
