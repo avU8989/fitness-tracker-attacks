@@ -11,7 +11,7 @@ import xml.dom.minidom
 
 HEARTRATE_SERVICE = "0000180d-0000-1000-8000-00805f9b34fb"
 HEARTRATE_MEASUREMENT = "00002a37-0000-1000-8000-00805f9b34fb"
-DEVICE_NAME = "Secured Fitness-Tracker Device"
+DEVICE_NAME = "Secured FitTrack"
 MAX_HEARTRATE_RAMP = 160
 MIN_HEARTRATE_RAMP = 60
 MAX_HEARTRATE = 250
@@ -27,9 +27,8 @@ class HeartRateService(Service):
         self.manualHR = 0
         self._last = time.time()
 
-    #Secure read to 'trigger pairing' (SC + MITM)
     #simple 8-bit heartrate measurement payload
-    @characteristic(HEARTRATE_MEASUREMENT, CF.NOTIFY | CF.READ, CF.ENCRYPT_READ, CF.ENCRYPT_WRITE )
+    @characteristic(HEARTRATE_MEASUREMENT, CF.NOTIFY , CF.ENCRYPT_AUTHENTICATED_READ , CF.ENCRYPT_AUTHENTICATED_WRITE , CF.AUTHENTICATED_SIGNED_WRITES) 
     def heart_rate_measurement(self, opts):
         flags = 0x00
         return bytes([flags, self._bpm & 0xFF])
@@ -57,47 +56,40 @@ class HeartRateService(Service):
             self.notify_hr()
             await asyncio.sleep(1.0)
 
-"""
-Search for a bluetooth adapter that implements org.freedesktop.DBUS.Properties interface on the SYSTEM Bus
+#Search for a bluetooth adapter that implements org.freedesktop.DBUS.Properties interface on the SYSTEM Bus
+#Iterates over potential BlueZ adapter object paths, instrospects each one and verifies the presence of org.bluez.Adapter1 interface by  
 
-Iterates over potential BlueZ adapter object paths, instrospects each one and verifies the presence of org.bluez.Adapter1 interface by  
-"""
-async def find_adapter_props(bus, max_hci=4, wait_seconds=5):
+async def find_adapter_props(bus, wait_seconds=5):
+    """Return (path, props) for the first BlueZ adapter visible on D-Bus."""
+    import asyncio, dbus_fast
+
     deadline = asyncio.get_event_loop().time() + wait_seconds
     while True:
-        for i in range(max_hci):
-            path = f"/org/bluez/hci{i}"
-            try:
-                #ask bluez for xml metadata describing all interfaces on the object path --> fails hci does not exist yet
-                node = await bus.introspect("org.bluez", path)
-                xml_elem = node.to_xml()
-                xml_str = ET.tostring(xml_elem, encoding="unicode")
-                pretty = xml.dom.minidom.parseString(xml_str).toprettyxml()
-                print(pretty)
-                # get a proxy object on the path exported on the bus 
-                proxy = bus.get_proxy_object("org.bluez", path, node)
-                #get an interface exported on this proxy object and connect it to the bus
-                #exposes methods to call DBUS methods, listen to signals and get and set properties on interface
-                props = proxy.get_interface("org.freedesktop.DBus.Properties")
-                # sanity: ensure Adapter1 exists
-                try:
-                    # get 'Address' or 'Name' as a test read (non-blocking)
-                    await props.call_get("org.bluez.Adapter1", "Address")
-                except Exception:
-                    # If Adapter1 isn't present on this object, skip
-                    continue
-                return path, props
-            except dbus_fast.InterfaceNotFoundError:
-                # object exists but properties iface missing; try next
-                continue
-            except Exception:
-                # introspect failed (likely path doesn't exist), just continue
-                continue
+        try:
+            # Introspect the root /org/bluez to see available hci nodes
+            root = await bus.introspect("org.bluez", "/org/bluez")
+            for node in root.nodes:
+                if node.name.startswith("hci"):
+                    path = f"/org/bluez/{node.name}"
+                    try:
+                        node_info = await bus.introspect("org.bluez", path)
+                        proxy = bus.get_proxy_object("org.bluez", path, node_info)
+                        props = proxy.get_interface("org.freedesktop.DBus.Properties")
+                        addr = await props.call_get("org.bluez.Adapter1", "Address")
+                        print(f"Found adapter {path} (Address: {addr.value})")
+                        return path, props
+                    except Exception as e:
+                        print(f"Skipping {path}: {e}")
+                        continue
+        except Exception as e:
+            print(f"Could not introspect /org/bluez: {e}")
 
         if asyncio.get_event_loop().time() > deadline:
+            print("Timeout waiting for adapter")
             return None, None
-        # wait a little and retry if adapter might be coming up
+
         await asyncio.sleep(0.5)
+
 
 #for YesNoAgent 
 #YesNoAgent(request_confirmation: Callable[[int], Awaitable[bool]], cancel: Callable)
@@ -112,7 +104,7 @@ async def on_cancel():
 
 #In order to set up Adapter alias 
 async def set_adapter_alias(bus, name):
-    adapter_path, props = await find_adapter_props(bus, max_hci=6, wait_seconds=6)
+    adapter_path, props = await find_adapter_props(bus)
     if adapter_path is None:
         raise RuntimeError("No BlueZ adapter exposing Properties found on system bus (tried /org/bluez/hci0..hci5).")
     # Set alias
@@ -142,7 +134,9 @@ async def main():
     service = HeartRateService()
 
     try: 
-        await service.register(bus)
+        services = ServiceCollection()
+        services.add_service(service)
+        await services.register(bus)
     except Exception as e:
         print(f"Failed to register serivce: {e}")
     
@@ -155,6 +149,7 @@ async def main():
         appearance=0,
         timeout=0,
         discoverable=True,
+        includes=AdvertisingIncludes.TX_POWER
     )
 
     try:
@@ -162,8 +157,13 @@ async def main():
         print("Advertisment registered")
     except Exception as e:
         print(f"Failed to register advertisement: {e}")
+
+    asyncio.create_task(service.start())
     
     print(f"Advertising {DEVICE_NAME} with encrypted services:")
+
+    await bus.wait_for_disconnect()
+
     await asyncio.Event().wait()
 
 
