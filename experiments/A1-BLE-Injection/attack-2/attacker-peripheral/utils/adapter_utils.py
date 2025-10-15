@@ -1,7 +1,14 @@
 import asyncio
 import dbus_fast
-
+import logging
 # https://dbus-fast.readthedocs.io/en/latest/
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S"
+)
+logger = logging.getLogger(__name__)
 
 
 async def find_adapter_props(bus, wait_seconds=5):
@@ -29,16 +36,17 @@ async def find_adapter_props(bus, wait_seconds=5):
                             "org.freedesktop.DBus.Properties")
 
                         addr = await props.call_get("org.bluez.Adapter1", "Address")
-                        print(f"Found adapter {path} (Address: {addr.value})")
+                        logger.info(
+                            f"Found adapter {path} (Address: {addr.value})")
                         return path, props
                     except Exception as e:
                         print(f"Skipping {path}: {e}")
                         continue
         except Exception as e:
-            print(f"Could not introspect /org/bluez: {e}")
+            logger.error(f"Could not introspect /org/bluez: {e}")
 
         if asyncio.get_event_loop().time() > deadline:
-            print("Timeout waiting for adapter")
+            logger.error("Timeout waiting for adapter")
             return None, None
 
         await asyncio.sleep(0.5)
@@ -54,6 +62,6 @@ async def set_adapter_alias(bus, name):
 
     # Use properties interface to call set method to update the Adapter1.Alias field
     # D-Bus value is here a string with the signature "s"
-    print(f"Setting Alias on {adapter_path} -> {name}")
+    logger.info(f"Setting Alias on {adapter_path} -> {name}")
     await props.call_set("org.bluez.Adapter1", "Alias", dbus_fast.Variant("s", name))
     return adapter_path
