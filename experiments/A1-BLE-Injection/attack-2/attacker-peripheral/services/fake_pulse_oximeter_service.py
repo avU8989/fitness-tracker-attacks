@@ -21,5 +21,5 @@ class FakePulseOximeterService(Service):
         # attacker expects that the app will definetly receive a spo2 field from the real ble device
         flags = 0x00
         payload = bytes([flags]) + int_sFloat_le(self._spo2) + \
-            int_sFloat_le(self.bpm)
+            int_sFloat_le(self._bpm)
         return payload
