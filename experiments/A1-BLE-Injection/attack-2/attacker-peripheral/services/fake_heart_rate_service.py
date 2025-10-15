@@ -21,7 +21,10 @@ class FakeHeartRateService(Service):
         self._last = time.time()
 
     # simple 8-bit heartrate measurement payload
-    @characteristic(HEARTRATE_MEASUREMENT, CF.NOTIFY, CF.READ, CF.WRITE)
+    @characteristic(
+        uuid=HEARTRATE_MEASUREMENT,
+        flags=CF.NOTIFY | CF.READ | CF.WRITE,
+    )
     def heart_rate_measurement(self, opts):
         flags = 0x00
         return bytes([flags, self._bpm & 0xFF])
