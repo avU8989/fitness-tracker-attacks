@@ -11,6 +11,7 @@ from services.fake_pulse_oximeter_service import PULSEOXIMETER_SERVICE, FakePuls
 from services.fake_physical_activity_monitor_service import PHYSICAL_ACTIVITY_SERVICE, FakePhysicalActivityMonitorService
 from services.fake_sleep_monitor_service import SLEEP_MONITOR_SERVICE, FakeSleepMonitorService
 from utils.adapter_utils import set_adapter_alias
+from utils.btmgmt_utils import setup_btmgmt
 
 DEVICE_NAME = "Secured FitTrack"
 RED = "\033[91m"
@@ -138,8 +139,9 @@ async def stdin_reader_and_dispatch(pams_queue: Queue, sams_queue: Queue, stop_e
 
 
 async def main():
+
     # for this attack the client (app smartphone device) will already be paired with the real ble peripheral
-    # we advertise the fake ble peripheral with characterstics in plaintext and the should accept this
+    # we advertise the fake ble peripheral with characterstics in plaintext and the app should accept this
     # because the app will be scanning for names the attack goes through
     # by inspecting the app the attacker can narrow the services/characteristics down and advertise their own fake service/char in plaintext
 
@@ -153,6 +155,9 @@ async def main():
     # or by app reverse engineering, can inspect the apk/ipa and find which uuids and the parsers the app uses
     # or brute force the payload formats, by trying various combinations of byte payloads
     # for this experiment we assume the attacker knows all of the payloads, as this is not the scope of the attack
+
+    if (setup_btmgmt() == False):
+        return
 
     bus = await get_message_bus()
 
@@ -200,7 +205,8 @@ async def main():
         appearance=0,
         timeout=0,
         discoverable=True,
-        includes=AdvertisingIncludes.TX_POWER
+        includes=AdvertisingIncludes.TX_POWER,
+        duration=65535
     )
 
     try:
