@@ -1,175 +1,256 @@
-import asyncio, time
+import asyncio
+from asyncio import Queue, Event, create_task
 from bluez_peripheral.util import Adapter, get_message_bus, is_bluez_available
 from bluez_peripheral.advert import Advertisement
 from bluez_peripheral.gatt.service import Service, ServiceCollection
 from bluez_peripheral.gatt.characteristic import characteristic, CharacteristicFlags as CF
 from bluez_peripheral.agent import YesNoAgent  # for Numeric Comparison (MITM)
 from bluez_peripheral.advert import PacketType, AdvertisingIncludes
-import dbus_fast
-import xml.etree.ElementTree as ET
-import xml.dom.minidom
+from services.heart_rate_service import HeartRateService, HEARTRATE_SERVICE
+from services.physical_activtiy_service import PHYSICAL_ACTIVITY_SERVICE, PhysicalActivityMonitorService
+from services.pulse_oximeter_service import PulseOximeterService, PULSEOXIMETER_SERVICE
+from services.sleep_monitor_service import SleepMonitorService, SLEEP_MONITOR_SERVICE
+from services.secure_service import SecuredService, SECURE_SERVICE
 
-HEARTRATE_SERVICE = "0000180d-0000-1000-8000-00805f9b34fb"
-HEARTRATE_MEASUREMENT = "00002a37-0000-1000-8000-00805f9b34fb"
+from utils.adapter_utils import set_adapter_alias, set_adapter_discoverable, set_adapter_powered
+from utils.btmgmt_utils import setup_btmgmt
+
+
 DEVICE_NAME = "Secured FitTrack"
-MAX_HEARTRATE_RAMP = 160
-MIN_HEARTRATE_RAMP = 60
-MAX_HEARTRATE = 250
-MIN_HEARTRATE = 70
+GREEN = "\033[92m"
+RESET = "\033[0m"
+YELLOW = "\033[93m"
 
-class HeartRateService(Service):
-    def __init__(self):
-        super().__init__(HEARTRATE_SERVICE, True)
-        self._bpm = MIN_HEARTRATE_RAMP
-        self._seq = 0
-        self._dir = 1 # ramp direction
-        self.ramp_step = 2
-        self.manualHR = 0
-        self._last = time.time()
 
-    #simple 8-bit heartrate measurement payload
-    @characteristic(HEARTRATE_MEASUREMENT, CF.NOTIFY , CF.ENCRYPT_AUTHENTICATED_READ , CF.ENCRYPT_AUTHENTICATED_WRITE , CF.AUTHENTICATED_SIGNED_WRITES) 
-    def heart_rate_measurement(self, opts):
-        flags = 0x00
-        return bytes([flags, self._bpm & 0xFF])
-    
-    def notify_hr(self):
-        flags = 0x00
-        self.heart_rate_measurement.changed(bytes([flags, self._bpm & 0xFF]))
+async def queue_control_consumer(service: PhysicalActivityMonitorService | SleepMonitorService, queue: Queue, stop_event: Event):
+    """Consume text commands from queue and feed them to service handlers logic"""
 
-    async def start(self):
-        """Tick once per second and send notification if subscribed"""
-        while True: 
-            if self.manualHR > 0:
-                self._bpm = max(MIN_HEARTRATE, min(MAX_HEARTRATE, int(self.manualHR)))
-            else: 
-                #logic to ramp heartrate up & down 
-                self._bpm += self._dir * self.ramp_step
-                if self._bpm >= MAX_HEARTRATE_RAMP:
-                    self._bpm = MAX_HEARTRATE_RAMP
-                    self._dir = -1
-                elif self._bpm <= MIN_HEARTRATE_RAMP:
-                    self._bpm = MIN_HEARTRATE_RAMP
-                    self._dir = +1
-            
-            #send notification each second
-            self.notify_hr()
-            await asyncio.sleep(1.0)
-
-#Search for a bluetooth adapter that implements org.freedesktop.DBUS.Properties interface on the SYSTEM Bus
-#Iterates over potential BlueZ adapter object paths, instrospects each one and verifies the presence of org.bluez.Adapter1 interface by  
-
-async def find_adapter_props(bus, wait_seconds=5):
-    """Return (path, props) for the first BlueZ adapter visible on D-Bus."""
-    import asyncio, dbus_fast
-
-    deadline = asyncio.get_event_loop().time() + wait_seconds
-    while True:
+    while not stop_event.is_set():
         try:
-            # Introspect the root /org/bluez to see available hci nodes
-            root = await bus.introspect("org.bluez", "/org/bluez")
-            for node in root.nodes:
-                if node.name.startswith("hci"):
-                    path = f"/org/bluez/{node.name}"
-                    try:
-                        node_info = await bus.introspect("org.bluez", path)
-                        proxy = bus.get_proxy_object("org.bluez", path, node_info)
-                        props = proxy.get_interface("org.freedesktop.DBus.Properties")
-                        addr = await props.call_get("org.bluez.Adapter1", "Address")
-                        print(f"Found adapter {path} (Address: {addr.value})")
-                        return path, props
-                    except Exception as e:
-                        print(f"Skipping {path}: {e}")
-                        continue
+            line = await asyncio.wait_for(queue.get(), timeout=0.5)
+        except asyncio.TimeoutError:
+            continue
+
+        if line is None:
+            # mark the sentinel as done and exit
+            try:
+                queue.task_done()
+            except Exception:
+                pass
+            break
+
+        # service exposes handle_command
+        try:
+            if hasattr(service, "handle_command"):
+                maybe = service.handle_command(line)
+
+                if asyncio.iscoroutine(maybe):
+                    await maybe
+            else:
+                print("No handle_command implemented on service: ", line)
+
         except Exception as e:
-            print(f"Could not introspect /org/bluez: {e}")
+            print("Unknown command: ", e)
 
-        if asyncio.get_event_loop().time() > deadline:
-            print("Timeout waiting for adapter")
-            return None, None
+            if stop_event.is_set():
+                break
+        finally:
+            # tell queue that item has been processed
+            try:
+                queue.task_done()
+            except Exception:
+                pass
 
-        await asyncio.sleep(0.5)
+
+async def stdin_reader_and_dispatch(pams_queue: Queue, sams_queue: Queue, stop_event: Event):
+    """Single Couroutine that reads stdin and dispatches lines to service queues
+    Commands:
+        pams <command>
+        sams <command>
+        exit
+        help
+    """
+
+    loop = asyncio.get_event_loop()
+    print("Type 'help' for commands. Prefix commands with 'pams' or 'sams'.")
+
+    while not stop_event.is_set():
+        try:
+            # Attacker Peripheral Command (APCMD)
+            line = await loop.run_in_executor(None, input, f"{GREEN}[RPCMD]{RESET} ")
+        except (EOFError, KeyboardInterrupt):
+            print("Exiting...")
+            stop_event.set()
+            break
+
+        if line is None:
+            continue
+
+        line = line.strip()
+
+        if not line:
+            continue
+
+        parts = line.split()
+
+        if not parts:
+            continue
+
+        head = parts[0].lower()
+
+        rest = " ".join(parts[1:])
+
+        if head in ("help", "?"):
+            print("Real Peripheral Commands:")
+            print(
+                "  pams <...>       send command to Physical Activity Monitor Service")
+            print(
+                "  sams <...>       send command to Sleep Activity Monitor Service")
+            print("  exit")
+            print("  help")
+            continue
+
+        if head == "exit":
+            # we need to notify others to clean up and stop
+            print(f"{YELLOW}RPCMD exiting...")
+            print(f"{YELLOW}Stopping services...")
+            print(f"{GREEN}Stopped RPCMD")
+
+            stop_event.set()
+
+            # push sentinel to queues so consumer loops can unblock
+            await sams_queue.put(None)
+            await pams_queue.put(None)
+            break
+
+        if head == "pams":
+            await pams_queue.put(rest)
+            # wait until consumer processed the item
+            try:
+                await pams_queue.join()
+            except asyncio.CancelledError:
+                break
+            continue
+        if head == "sams":
+            await sams_queue.put(rest)
+            try:
+                await pams_queue.join()
+            except asyncio.CancelledError:
+                break
+
+        print("Unknown target. Prefix commands with 'pams' or 'sams'. Type 'help'.")
 
 
-#for YesNoAgent 
-#YesNoAgent(request_confirmation: Callable[[int], Awaitable[bool]], cancel: Callable)
-#we need an async function that receives the 6-digit passkey and returns TRUE or FALSE
-#we need a function if pairing gets canceled
 async def on_request_confirmation(passkey: int) -> bool:
     print(f"[AGENT] Confirm passkey: {passkey:06d} (auto-accepting)")
     return True
 
+
 async def on_cancel():
     print("[AGENT] Pairing was canceled by the peer")
 
-#In order to set up Adapter alias 
-async def set_adapter_alias(bus, name):
-    adapter_path, props = await find_adapter_props(bus)
-    if adapter_path is None:
-        raise RuntimeError("No BlueZ adapter exposing Properties found on system bus (tried /org/bluez/hci0..hci5).")
-    # Set alias
-    print(f"Setting Alias on {adapter_path} -> {name}")
-    await props.call_set("org.bluez.Adapter1", "Alias", dbus_fast.Variant("s", name))
-    return adapter_path
 
-async def main(): 
-    #by default message bus is set to system not to session
-    bus = await get_message_bus()  
+async def main():
+    if (setup_btmgmt() == False):
+        return
 
-    #check if bluez is available on system bus
+    # by default message bus is set to system not to session
+    bus = await get_message_bus()
+
+    # check if bluez is available on system bus
     if await is_bluez_available(bus):
         print("BlueZ available on system bus")
     else:
         print("BlueZ not available on system bus")
-        return 
-    
+        return
+
+    # for YesNoAgent
+    # YesNoAgent(request_confirmation: Callable[[int], Awaitable[bool]], cancel: Callable)
+    # we need an async function that receives the 6-digit passkey and returns TRUE or FALSE
+    # we need a function if pairing gets canceled
+    # guard against MITM attacks
     agent = YesNoAgent(on_request_confirmation, on_cancel)
 
     try:
-        #register should be set on default in order to accept pairing requests
+        # register should be set on default in order to accept pairing requests
         await agent.register(bus, default=True)
     except Exception as e:
-         print(f"Failed to register agent: {e}")
+        print(f"Failed to register agent: {e}")
 
-    service = HeartRateService()
+        # create the services
 
-    try: 
+    heartrate_service = HeartRateService()
+    pulse_oximeter_service = PulseOximeterService()
+    physical_activity_service = PhysicalActivityMonitorService()
+    sleep_monitor_service = SleepMonitorService()
+    secured_service = SecuredService()
+
+    try:
         services = ServiceCollection()
-        services.add_service(service)
+        services.add_service(secured_service)
+        services.add_service(heartrate_service)
+        services.add_service(pulse_oximeter_service)
+        services.add_service(physical_activity_service)
+        services.add_service(sleep_monitor_service)
         await services.register(bus)
     except Exception as e:
         print(f"Failed to register serivce: {e}")
-    
-    #set the alias could also be done on console with bluetoothctl
+
+    # set the alias could also be done on console with bluetoothctl
     await set_adapter_alias(bus, DEVICE_NAME)
 
     advert = Advertisement(
         localName=DEVICE_NAME,
-        serviceUUIDs=[HEARTRATE_SERVICE],
+        serviceUUIDs=[HEARTRATE_SERVICE,
+                      PULSEOXIMETER_SERVICE,
+                      PHYSICAL_ACTIVITY_SERVICE,
+                      SLEEP_MONITOR_SERVICE,
+                      SECURE_SERVICE],
         appearance=0,
         timeout=0,
         discoverable=True,
-        includes=AdvertisingIncludes.TX_POWER
+        includes=AdvertisingIncludes.TX_POWER,
+        duration=65535
     )
 
     try:
         await advert.register(bus)
-        print("Advertisment registered")
+        print("-------------------Advertisment registered-----------------------")
     except Exception as e:
         print(f"Failed to register advertisement: {e}")
 
-    asyncio.create_task(service.start())
-    
-    print(f"Advertising {DEVICE_NAME} with encrypted services:")
+    # create queues & stop event
+    pams_queue = Queue()  # Physical Activity Monitor Service
+    sams_queue = Queue()  # Sleep Activity Monitor Service
+    stop_event = Event()
 
-    await bus.wait_for_disconnect()
+    tasks = [
+        asyncio.create_task(heartrate_service.start()),
+        asyncio.create_task(queue_control_consumer(
+            physical_activity_service, pams_queue, stop_event)),
+        asyncio.create_task(queue_control_consumer(
+            sleep_monitor_service, sams_queue, stop_event)),
+        asyncio.create_task(stdin_reader_and_dispatch(
+            pams_queue, sams_queue, stop_event))
+    ]
 
-    await asyncio.Event().wait()
+    try:
+        wait_task = [asyncio.create_task(
+            bus.wait_for_disconnect()), asyncio.create_task(stop_event.wait())]
 
+        # clean shutdown, we wait until BlueZ disconnects or stop_event is set
+        done, pending = await asyncio.wait(wait_task, return_when=asyncio.FIRST_COMPLETED)
+
+        for t in pending:
+            t.cancel()
+    finally:
+        stop_event.set()
+
+        for t in tasks:
+            t.cancel()
 
 if __name__ == "__main__":
-    asyncio.run(main())
-
-
-
-
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Exiting")
