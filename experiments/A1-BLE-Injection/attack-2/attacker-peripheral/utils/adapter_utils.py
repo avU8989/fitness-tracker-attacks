@@ -4,7 +4,7 @@ import logging
 # https://dbus-fast.readthedocs.io/en/latest/
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARN,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%H:%M:%S"
 )
@@ -20,7 +20,7 @@ async def find_adapter_props(bus, wait_seconds=5):
             # introspect the root /org/bluez to see available hci nodes
             root = await bus.introspect("org.bluez", "/org/bluez")
             for node in root.nodes:
-                if node.name.startswith("hci"):
+                if node.name.startswith("hci1"):
                     path = f"/org/bluez/{node.name}"
                     try:
                         # introspect the data for the node
@@ -36,6 +36,7 @@ async def find_adapter_props(bus, wait_seconds=5):
                             "org.freedesktop.DBus.Properties")
 
                         addr = await props.call_get("org.bluez.Adapter1", "Address")
+
                         logger.info(
                             f"Found adapter {path} (Address: {addr.value})")
                         return path, props
@@ -65,3 +66,23 @@ async def set_adapter_alias(bus, name):
     logger.info(f"Setting Alias on {adapter_path} -> {name}")
     await props.call_set("org.bluez.Adapter1", "Alias", dbus_fast.Variant("s", name))
     return adapter_path
+
+
+async def set_adapter_powered(bus):
+    adapter_path, props = await find_adapter_props(bus)
+    if adapter_path is None:
+        raise RuntimeError(
+            "No BlueZ adapter exposing Properties found on system bus (tried /org/bluez/hci0..hci5).")
+    await props.call_set('org.bluez.Adapter1', 'Powered', dbus_fast.Variant('b', True))
+
+    return
+
+
+async def set_adapter_discoverable(bus):
+    adapter_path, props = await find_adapter_props(bus)
+    if adapter_path is None:
+        raise RuntimeError(
+            "No BlueZ adapter exposing Properties found on system bus (tried /org/bluez/hci0..hci5).")
+    await props.call_set('org.bluez.Adapter1', 'Discoverable', dbus_fast.Variant('b', True))
+
+    return

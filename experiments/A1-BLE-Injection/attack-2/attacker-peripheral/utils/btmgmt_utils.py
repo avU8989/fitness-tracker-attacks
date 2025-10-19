@@ -1,19 +1,21 @@
 import subprocess
 
 
-def setup_btmgmt():
+def setup_btmgmt(adapter: str = "hci1"):
     """
     Configure Bluetooth adapter for BLE-only mode, advertising, bonding using btmgmt    """
 
     cmds = [
-        ["btmgmt", "power", "off"],
-        ["btmgmt", "bredr", "off"],
-        ["btmgmt", "le", "on"],
-        ["btmgmt", "connectable", "on"],
-        ["btmgmt", "advertising", "on"],
-        ["btmgmt", "bondable", "on"],
-        ["btmgmt", "discov", "yes"],
-        ["btmgmt", "power", "on"],
+        ["btmgmt", "-i", adapter, "power", "off"],
+        ["btmgmt", "-i", adapter, "bredr", "off"],
+        ["btmgmt", "-i", adapter, "le", "on"],
+        ["btmgmt", "-i", adapter, "connectable", "on"],
+        ["btmgmt", "-i", adapter, "advertising", "on"],
+        ["btmgmt", "-i", adapter, "bondable", "on"],
+        # the attacker uses static mac address
+        ["btmgmt", "-i", adapter, "privacy", "off"],
+        ["btmgmt", "-i", adapter, "discov", "yes"],
+        ["btmgmt", "-i", adapter, "power", "on"],
     ]
 
     for cmd in cmds:

