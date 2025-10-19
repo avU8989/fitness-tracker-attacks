@@ -90,7 +90,7 @@ class FakePhysicalActivityMonitorService(Service):
         self._seq = 0
 
     # READ-Only characteristic (app performs a single read) -> not encrypted will be in plaintext and not authenticated
-    @characteristic(STEP_COUNTER_MEASUREMENT, lags=CF.NOTIFY | CF.READ | CF.WRITE)
+    @characteristic(STEP_COUNTER_MEASUREMENT, flags=CF.NOTIFY | CF.READ | CF.WRITE)
     def physical_activity_meas(self, opts):
         """Return payload for STEP COUNTER MEASUREMENT Characteristic"""
 
@@ -115,7 +115,7 @@ class FakePhysicalActivityMonitorService(Service):
         self.physical_activity_meas.changed(payload)
 
     def show(self):
-        print("flags=0x{:02x} step_count={} duration={} stride={} distance={} energy={} met={}".format(
+        print("[Physical Activity Monitor Service] flags=0x{:02x} step_count={} duration={} stride={} distance={} energy={} met={}".format(
             self.flags, self._step_count, self._duration, self._stride_length, self._distance, self._energy_expended, self._met
         ))
 
@@ -171,23 +171,27 @@ class FakePhysicalActivityMonitorService(Service):
 
                 if field == "steps":
                     self._step_count = int(parts[2])
-                    print("step count = ", self._step_count)
+                    print(
+                        "[Physical Activity Monitor Service] step count = ", self._step_count)
                     self.notify()
                     return
                 if field == "duration":
                     self._duration = int(parts[2])
-                    print("duration = ", self._duration)
+                    print(
+                        "[Physical Activity Monitor Service] duration = ", self._duration)
                     self.notify()
                     return
                 if field == "stride":
                     self._stride_length = int(parts[2])
-                    print("stride = ", self._stride_length)
+                    print("[Physical Activity Monitor Service] stride = ",
+                          self._stride_length)
                     self.notify()
                     return
                 if field == "distance":
                     self._distance = int(parts[2])
                     self.flags |= FLAG_DISTANCE
-                    print("distance = ", self._distance)
+                    print(
+                        "[Physical Activity Monitor Service] distance = ", self._distance)
                     self.notify()
                     return
                 if field == "energy":
@@ -218,7 +222,7 @@ class FakePhysicalActivityMonitorService(Service):
                     if self._met is not None:
                         self.flags |= FLAG_MET
 
-                    print("All values set")
+                    print("[Physical Activity Monitor Service] All values set")
                     self.notify()
                     self.show()
                     return
