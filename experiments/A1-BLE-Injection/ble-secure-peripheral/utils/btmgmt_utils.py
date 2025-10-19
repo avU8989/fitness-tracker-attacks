@@ -13,6 +13,12 @@ def setup_btmgmt():
         ["btmgmt", "advertising", "on"],
         ["btmgmt", "bondable", "on"],
         ["btmgmt", "discov", "yes"],
+
+        # https://www.bluetooth.com/blog/bluetooth-technology-protecting-your-privacy/
+        # enables privacy support on a Bluetooth device using the BlueZ stack, which causes the device to start using Random Private Addresses (RPAs)
+        # for its Bluetooth address to enhance user privacy.
+        ["btmgmt", "privacy", "on"],  # enables random resolvable addresses
+
         ["btmgmt", "power", "on"],
     ]
 
