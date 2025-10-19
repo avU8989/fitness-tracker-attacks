@@ -55,7 +55,7 @@ class FakeSleepMonitorService(Service):
         self.sleep_activity_meas.changed(payload)
 
     def show(self):
-        print("stage={} duration={} hr={} rem_percent={} light_percent={} deep_percent={}".format(
+        print("[Sleep Activity Monitor Service] stage={} duration={} hr={} rem_percent={} light_percent={} deep_percent={}".format(
             self._stage, self._duration_min, self._hr, self._rem_pct, self._light_pct, self._deep_pct
         ))
 
@@ -74,9 +74,6 @@ class FakeSleepMonitorService(Service):
             help
             exit
         """
-        loop = asyncio.get_event_loop()
-
-        print("[Sleep Activity Monitor Service Control] Type 'help' for commands")
 
         # user exits the command line skip
         if line is None:
@@ -115,32 +112,37 @@ class FakeSleepMonitorService(Service):
 
                 if field == "stage":
                     self._stage = int(parts[2])
-                    print("stage = ", self._stage)
+                    print("[Sleep Activity Monitor Service] stage = ", self._stage)
                     self.notify()
                     return
                 if field == "duration":
                     self._duration_min = int(parts[2])
-                    print("duration = ", self._duration_min, " min")
+                    print("[Sleep Activity Monitor Service] duration = ",
+                          self._duration_min, " min")
                     self.notify()
                     return
                 if field == "hr":
                     self._hr = int(parts[2])
-                    print("hr = ", self._hr, " bpm")
+                    print("[Sleep Activity Monitor Service] hr = ",
+                          self._hr, " bpm")
                     self.notify()
                     return
                 if field == "rem":
                     self._rem_pct = int(parts[2])
-                    print("REM = ", self._rem_pct, " %")
+                    print("[Sleep Activity Monitor Service] REM = ",
+                          self._rem_pct, " %")
                     self.notify()
                     return
                 if field == "light":
                     self._light_pct = int(parts[2])
-                    print("LIGHT = ", self._light_pct, " %")
+                    print("[Sleep Activity Monitor Service] LIGHT = ",
+                          self._light_pct, " %")
                     self.notify()
                     return
                 if field == "deep":
                     self._deep_pct = int(parts[2])
-                    print("DEEP = ", self._deep_pct, " %")
+                    print("[Sleep Activity Monitor Service] DEEP = ",
+                          self._deep_pct, " %")
                     self.notify()
                     return
                 if field == "all" and len(parts) >= 8:
@@ -151,12 +153,11 @@ class FakeSleepMonitorService(Service):
                     self._light_pct = int(parts[6])
                     self._deep_pct = int(parts[7])
 
+                    print("[Sleep Activity Monitor Service] All values set")
                     self.notify()
-
-                    print("All values set")
                     self.show()
                     return
 
-            print("Unknown command (type 'help')")
+            print("[Sleep Activity Monitor Service] Unknown command (type 'help')")
         except Exception as e:
-            print("Command error: ", e)
+            print("[Sleep Activity Monitor Service] Command error: ", e)
