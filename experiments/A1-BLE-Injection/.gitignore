@@ -26,6 +26,9 @@ Thumbs.db
 coverage
 *.lcov
 
+__pycache__/
+*.pyc
+
 # Build output
 dist/
 build/
