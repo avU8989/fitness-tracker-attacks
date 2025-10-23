@@ -10,16 +10,22 @@ from services.heart_rate_service import HeartRateService, HEARTRATE_SERVICE
 from services.physical_activtiy_service import PHYSICAL_ACTIVITY_SERVICE, PhysicalActivityMonitorService
 from services.pulse_oximeter_service import PulseOximeterService, PULSEOXIMETER_SERVICE
 from services.sleep_monitor_service import SleepMonitorService, SLEEP_MONITOR_SERVICE
-from services.secure_service import SecuredService, SECURE_SERVICE
-
-from utils.adapter_utils import set_adapter_alias, set_adapter_discoverable, set_adapter_powered
+import logging
+from utils.adapter_utils import set_adapter_alias, set_adapter_discoverable, set_adapter_powered, find_adapter_props
 from utils.btmgmt_utils import setup_btmgmt
 
 
-DEVICE_NAME = "Secured FitTrack"
+DEVICE_NAME = "FitTrack"
 GREEN = "\033[92m"
 RESET = "\033[0m"
 YELLOW = "\033[93m"
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S"
+)
+logger = logging.getLogger(__name__)
 
 
 async def queue_control_consumer(service: PhysicalActivityMonitorService | SleepMonitorService, queue: Queue, stop_event: Event):
@@ -157,13 +163,6 @@ async def main():
     # by default message bus is set to system not to session
     bus = await get_message_bus()
 
-    # check if bluez is available on system bus
-    if await is_bluez_available(bus):
-        print("BlueZ available on system bus")
-    else:
-        print("BlueZ not available on system bus")
-        return
-
     # for YesNoAgent
     # YesNoAgent(request_confirmation: Callable[[int], Awaitable[bool]], cancel: Callable)
     # we need an async function that receives the 6-digit passkey and returns TRUE or FALSE
@@ -183,11 +182,9 @@ async def main():
     pulse_oximeter_service = PulseOximeterService()
     physical_activity_service = PhysicalActivityMonitorService()
     sleep_monitor_service = SleepMonitorService()
-    secured_service = SecuredService()
 
     try:
         services = ServiceCollection()
-        services.add_service(secured_service)
         services.add_service(heartrate_service)
         services.add_service(pulse_oximeter_service)
         services.add_service(physical_activity_service)
@@ -204,8 +201,7 @@ async def main():
         serviceUUIDs=[HEARTRATE_SERVICE,
                       PULSEOXIMETER_SERVICE,
                       PHYSICAL_ACTIVITY_SERVICE,
-                      SLEEP_MONITOR_SERVICE,
-                      SECURE_SERVICE],
+                      SLEEP_MONITOR_SERVICE],
         appearance=0,
         timeout=0,
         discoverable=True,
@@ -215,7 +211,11 @@ async def main():
 
     try:
         await advert.register(bus)
-        print("-------------------Advertisment registered-----------------------")
+        print(
+            f"{GREEN}-------------------Real Peripheral with LE started---------------")
+
+        print(
+            f"-------------------Advertisment registered-----------------------{RESET}")
     except Exception as e:
         print(f"Failed to register advertisement: {e}")
 

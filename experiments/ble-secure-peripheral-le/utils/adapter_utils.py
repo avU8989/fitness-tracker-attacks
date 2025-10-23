@@ -3,11 +3,6 @@ import dbus_fast
 import logging
 # https://dbus-fast.readthedocs.io/en/latest/
 
-logging.basicConfig(
-    level=logging.WARN,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S"
-)
 logger = logging.getLogger(__name__)
 
 
