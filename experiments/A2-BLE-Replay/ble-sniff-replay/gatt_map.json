@@ -1,0 +1,8 @@
+{
+  "74:3c:89:e8:d2:0f": {
+    "002a": "Heart Rate: Heart Rate Measurement",
+    "0032": "Pulse Oximeter : PLX Continous Measurement", 
+    "0036": "Sleep Activtiy Instantaneous Data",
+    "003a": "Physical Activity Monitor: Step Counter Actvity Summary Data"
+  }
+}

@@ -1,0 +1,6 @@
+# Ignore packet capture files
+*.pcap
+*.pcapng
+
+# Ignore log files
+*.log
