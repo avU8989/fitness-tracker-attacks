@@ -112,7 +112,7 @@ def main():
                 "dst_addr": dst_addr,
                 "opcode": opcode,
                 "handle": handle,
-                "service_uuid": service_uuid,
+                "service_uuid16": service_uuid,
                 "char_uuid16": uuid16,
                 "values": {}
             }
@@ -155,7 +155,7 @@ def main():
                 "dst_addr": dst_addr,
                 "opcode": opcode,
                 "handle": handle,
-                "service_uuid": service_uuid,
+                "service_uuid16": service_uuid,
                 "char_uuid16": uuid16,
                 "values": {}
             }
