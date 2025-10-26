@@ -2,7 +2,7 @@ import argparse
 from utils.logger import logger_setup
 from parsers.capture_parsers import load_btatt_capture_with_filter
 from parsers.att_extractor import extract_notifications_data, extract_read_response_data
-from configs.constants import ATT_FILTERS
+from configs.att_parser_constants import ATT_FILTERS
 from utils.output_writer import write_json
 logger = logger_setup("btsnoop_parser")
 
