@@ -3,13 +3,11 @@ import json
 import asyncio
 import dbus_next
 from dbus_next.aio import MessageBus
-from dbus_next.service import (ServiceInterface, method, dbus_property,
-                               signal, PropertyAccess)
+from dbus_next.service import (
+    ServiceInterface, method, dbus_property, PropertyAccess)
 from dbus_next import Variant
-from dbus_next.constants import MessageType
 from common import int_sFloat_le
-from dbus_next.errors import DBusError
-from btmgmt_utils import setup_btmgmt
+from utils.btmgmt_utils import setup_btmgmt
 
 # Constants
 
