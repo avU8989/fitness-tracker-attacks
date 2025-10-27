@@ -1,15 +1,6 @@
 # common.py
 # constants & helper utils
 
-def int_sfloat_le(value: int) -> bytes:
-    # encode integer value as IEEE-11073 SFLOAT (exp=0, mantissa = value)
-    mant = value & 0x0FFF
-    raw = (0 << 12) | (mant & 0x0FFF)
-    lo = raw & 0xFF
-    hi = (raw >> 8) & 0xFF
-    return bytes([lo, hi])
-
-
 def int_sFloat_le(value: int) -> bytes:
     # encode integer value as IEEE-11073 SFLOAT (exp=0, mantissa = value)
     mant = value & 0x0fff

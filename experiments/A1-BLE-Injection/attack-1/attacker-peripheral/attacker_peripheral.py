@@ -182,13 +182,9 @@ async def main():
     adapter_obj = None
     for a in adapters:
         obj_path = a._proxy.path
-        path_attr = a._proxy.path
         logger.debug("Proxy Bus: %s", a._proxy.bus)
         logger.debug("Proxy Bus name: %s", a._proxy.bus_name)
         logger.debug("Proxy Bus path: %s", a._proxy.path)
-
-        logger.debug(
-            "Inspecting adapter object: proxy.object_path=%s, path=%s", obj_path, path_attr)
 
         try:
             if obj_path is not None and obj_path == adapter_path:
