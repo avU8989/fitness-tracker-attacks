@@ -1,41 +1,50 @@
-# <Ax — Title>
+# <Attack  — Title>
+# Attack x (Notes for Attack) #
 
-**Goal**  
-One-sentence objective, e.g., “Assess whether the app accepts forged heart-rate values from a non-paired peripheral.”
+## Goal ## 
+Describe the vulnerability and how an attacker might exploit it
 
-**Threat Model Mapping**  
-STRIDE: <Spoofing/Tampering/...> · Entry point(s): <BLE GATT / App pipeline / API>.
+## Threat Model Mapping — STRIDE
 
-**Assumptions & Preconditions**  
-- Testbed devices, synthetic data, legal authorization.
-- Feature flags/config state (e.g., bonding disabled in baseline).
+| STRIDE Category | Entry Point(s) | Description | Potential Impact |  Mitigations |
+|-----------------|----------------|--------------|------------------|------------------------|
+| **Spoofing** | 
+| **Tampering** |
+| **Repudiation** | 
+| **Information discolsure** | 
+| **Denial of service** | 
+| **Elevation of privilege** | 
 
-**Setup (High Level)**  
-- Prepare the app and backend in a test environment.
-- Use a BLE tooling setup to emulate a peripheral and send controlled notifications.  
-  _Note: Do not include low-level exploit steps or third-party secrets._
+---
 
-**Procedure (High Level)**  
-1) Start app and subscribe to the target characteristic.  
-2) Generate a controlled sequence of metrics (e.g., 60–200 bpm at 1–5 Hz).  
-3) Observe app parsing → upload → backend ingestion.  
-4) Record timestamps and identifiers.
+## Precondition ## 
+ Preconditions for attack scenario and for the attack script to work
+ - e.g. "fitness-tracker" app will connect automatically to devices based on visible identifiers (device name, mac address)
 
-**Captured Data**  
-- Raw app receive time, payload, sequence/timestamp.  
-- Backend accept/reject outcome and response codes.
+## Procedure ##
+ Attack Scenario describing the steps on how the attacker would go against our system e.g. : 
 
-**Success Criteria**  
-Quantitative threshold, e.g., “≥95% of forged values appear in backend within 2 s median latency.”
+**1.** Static MAC Addresses used and identified by attacker
 
-**Mitigation Under Test**  
+**2.** Attacker will run fake peripheral
+
+**3.** App connects to fake peripheral due to faulty connection logic
+
+## Captured Data ##  
+  Describes the Captured Data we receive from our logs (can be on backend layer, app layer or peripheral layer)
+
+## Success Criteria ##
+ Quantitative threshold, e.g. 95 % forged health metrics will appear in backend
+
+## Mitigation Under Test ##
 What you enable in the hardened run (e.g., LE Secure Connections + application-layer signatures).
 
-**Metrics Reported**  
-Acceptance rate (%), detection rate (%), false positives (%), E2E latency (ms, median/p95), overhead.
+## Metrics ##  
+Acceptance rate (%), detection rate (%), etc
 
-**Cleanup**  
-Return app/backend to baseline, rotate test tokens/keys if used.
+## How to run the Attack ##
+Steps on how to run the attack script
 
-**Notes / Safety**  
-This document omits actionable exploit details. Use only in authorized environments.
+## Notes / Safety ##
+
+Notes for implementing the attack e.g. problems during implementation, preconditions noted to run the attack succesfully, research papers about vulnerabilties regarding the attack
