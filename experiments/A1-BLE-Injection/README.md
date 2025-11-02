@@ -11,8 +11,8 @@ Source: https://www.usenix.org/system/files/woot20-paper-wu.pdf,
 The attack scenario has been conducted on : 
 - **Client Device**: Samsung Galaxy S24+ with One UI 6.1 — running the fitness tracker app
 - **Unhardened (legitimate) peripheral**: Honor 8 - running the peripheral on nrF Connect
-- **Attacker peripheral**: Linux host running BlueZ (**hci1**), using Bluetooth Toggle to present the spoofing peripheral.
-- **Hardened (real) peripheral (hosted)**: Linux host running BlueZ (**hci0**) using my laptop’s Bluetooth adapter.
+- **Attacker peripheral**: Linux host running BlueZ (**hci0**), using my laptop’s Bluetooth adapter to present the spoofing peripheral.
+- **Hardened (real) peripheral (hosted)**: Linux host running BlueZ (**hci1**) using Bluetooth Toggle
 
 ### Linux Host (Peripheral Environment Details)
 | Component              | Details                                                                                                                                                                                         |
