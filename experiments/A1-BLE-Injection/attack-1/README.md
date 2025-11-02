@@ -3,7 +3,7 @@
 
 ## Goal ## 
 
-The App will scan the device based on **name** and **uuids**, even though **BLE Protocol for Security (LE Secure Connection, RPA)** is **correctly implemented**, once paired the attacker can spoof the **MAC and name of the device**, **fake ble peripheral** will be connected to app **even though a bond was created**. 
+The App will scan the device based on **name** and **uuids**, even though **BLE Protocol for Security (LE Secure Connection, RPA)** is **correctly implemented**, once paired with the real peripheral the attacker can spoof the **MAC and name of the device**, **fake ble peripheral** will be connected to app **even though a bond for the real peripheral was created**. 
 
 ## Threat Model Mapping — STRIDE
 
@@ -41,6 +41,8 @@ OPEN_API_DESIGN=./fitness_tracker.yaml
 - **Host-side Linux environment configured with `bluetoothctl agent` and `btmgmt` flags for LE Secure Connections and pairing**
 
 - The "fitness-tracker" App will connect automatically connect to devices based on visible identifiers **(Device Name, Advertised UUIDs)**
+
+- The "fitness-tracker" App does not require pairing or encryption
 
 - The legitimate peripheral may be **offline (e.g. powered off)** or **turned on too late**
 
@@ -123,7 +125,7 @@ ps aux | grep [b]luetoothd # list bluetoothd processes
 Launch the Bluetooth daemon in experimental mode using the following command: 
 
 ```bash 
-sudo /usr/libexec/bluetooth/bluetoothd --experimental --noplugin=a2dp,avrcp,media,input,network -n -d # load only GATT
+sudo /usr/libexec/bluetooth/bluetoothd --experimental --noplugin=a2dp,avrcp,media,input,network,mcp,tmap,vcp,aics,vocs,mics,bap,bass,has,csip -n -d #load only gatt
 ```
 ---
 
@@ -164,7 +166,21 @@ Attacker can guess Services and Characteristics just by inspecting the app (Hear
 	sudo btmgmt le on
 	sudo btmgmt connectable on
 	sudo btmgmt advertising on
-	sudo btmgmt bondable on
 	sudo btmgmt discov yes
 	sudo btmgmt power on
 ```
+
+### Problem Notes: 
+- While testing my fake peripheral, btmon showed the phone reading a Media Player Name (UUID 0x2B93) from handle 0x002a.
+
+- That characteristic is part of MCP/VCP (Media Control Profile / Volume Control Profile) which BlueZ exposes as built-in GATT services on the laptop.
+
+- Those MCP/VCP characteristics require authentication → BlueZ issued an SMP Security Request (Bonding, No MITM, Legacy) → the Samsung S24 displayed a pairing prompt.
+
+- I mistakenly expected the prompt to be caused by my fake services... in fact the host was exposing MCP/VCP, not my code. My fake GATT chars are plaintext (no encryption/auth flags), so they were not the cause.
+
+- Fix: disable the MCP/VCP (and related LE media) plugins in the bluetoothd command line so BlueZ does not expose those media GATT services. This prevents the phone from discovering media characteristics that trigger bonding.
+
+New problem earlier i wanted to have my real peripheral on adapter hci0 and my attacker peripheral on hci1 which is my bluetooth dongle, for some reason i think its because of the firmware of the bluetooth dongle upon starting the hci1 it always sets the bluetooth settings to secure conn and bondable, which we dont want to showcse on our attacker peripheral. SO i decide to stream the real peripheral on **hci1**
+
+Turn off BR/EDR, on my Samsung phone it kept rying to open the **Classic Bluetooth Link** in addition to my BLE conecction, and since mey peripheral doeesnt advertise any Classic profiles, BlueZ always disconnected. We want the adapter to be LE only. Because if not --> Immediate disconnects (reason 2/3) 
