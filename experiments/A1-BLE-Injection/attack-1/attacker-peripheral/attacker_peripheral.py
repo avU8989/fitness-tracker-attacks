@@ -43,7 +43,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def queue_control_consumer(service: FakePhysicalActivityMonitorService, queue: Queue, stop_event: Event):
+async def queue_control_consumer(service: FakePhysicalActivityMonitorService | FakeSleepMonitorService, queue: Queue, stop_event: Event):
     """Consume text commands from queue and feed them to service handlers logic"""
 
     while not stop_event.is_set():
@@ -187,13 +187,6 @@ async def main():
     try:
 
         node_info = await bus.introspect(BLUEZ_SERVICE, ADAPTER_PATH)
-
-        print("node_info type:", type(node_info))
-        # optional: show a tiny snippet
-        try:
-            print("node_info summary:", str(node_info)[:300])
-        except Exception:
-            pass
 
         # get the proxy object
         proxy = bus.get_proxy_object(BLUEZ_SERVICE, ADAPTER_PATH, node_info)
