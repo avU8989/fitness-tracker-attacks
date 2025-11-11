@@ -181,7 +181,7 @@ async def main():
 
         path = "/org/ble_secure_peripheral_le_sc"
         heartrate_service_path = f"{path}/heartrate_service"
-        physical_activity_service_path = f"{path}/physical_activtiy_service"
+        physical_activity_service_path = f"{path}/physical_activtity_service"
         pulse_oximeter_service_path = f"{path}/pulse_oximeter_service"
         sleep_service_path = f"{path}/sleep_activity_service"
 
@@ -197,20 +197,22 @@ async def main():
         # to pair we need to add an agent from org.bluez.Agent with a passkey implementation
         # after pairing suceeds the link becomes encrypted and authenticated
 
+        # Bluetooth LE Security Level 3 --> Encrypt + Authenticated (MITM protected)
+
         heartrate_meas_char = HeartMeasurementCharacteristic(
-            heartrate_meas_char_path, HEARTRATE_MEASUREMENT, heartrate_service_path, ["encrypt-authenticated-read", "encrypt-authenticated-notify"])
+            heartrate_meas_char_path, HEARTRATE_MEASUREMENT, heartrate_service_path, ["read", "encrypt-authenticated-read", "notify", "encrypt-authenticated-notify"])
 
         step_counter_char = StepCounterCharacteristic(
             step_counter_char_path, STEP_COUNTER_MEASUREMENT, physical_activity_service_path, [
-                "encrypt-authenticated-read", "encrypt-authenticated-notify"]
+                "read", "encrypt-authenticated-read", "notify", "encrypt-authenticated-notify"]
         )
 
         pulse_oximeter_meas_char = PulseOximeterMeasurementCharacteristic(
-            pulse_oximeter_meas_char_path, PLX_CONT_MEAS, pulse_oximeter_service_path, ["encrypt-authenticated-read"])
+            pulse_oximeter_meas_char_path, PLX_CONT_MEAS, pulse_oximeter_service_path, ["read", "encrypt-authenticated-read"])
 
         sleep_meas_char = SleepMeasurementCharacteristic(
             sleep_meas_char_path, SLEEP_MEASUREMENT, sleep_service_path, [
-                "encrypt-authenticated-read", "encrypt-authenticated-notify"]
+                "read", "encrypt-authenticated-read", "notify", "encrypt-authenticated-notify"]
         )
         # ------------------------Create GATT Services-------------------------------
 
