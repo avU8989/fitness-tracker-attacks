@@ -1,13 +1,6 @@
 # common.py
 # constants & helper utils
-
-def int_sfloat_le(value: int) -> bytes:
-    # encode integer value as IEEE-11073 SFLOAT (exp=0, mantissa = value)
-    mant = value & 0x0FFF
-    raw = (0 << 12) | (mant & 0x0FFF)
-    lo = raw & 0xFF
-    hi = (raw >> 8) & 0xFF
-    return bytes([lo, hi])
+import time
 
 
 def int_sFloat_le(value: int) -> bytes:
@@ -16,6 +9,10 @@ def int_sFloat_le(value: int) -> bytes:
     exp = 0
     raw = (exp << 12) | mant
     return bytes([raw & 0xff, (raw >> 8) & 0xff])
+
+
+def ts(): return time.strftime("%H:%M:%S") + \
+    f".{int(time.time()*1000) % 1000:03d}"
 
 
 # STANDARD UUIDS BY BLUETOOTH (SIG)
@@ -28,4 +25,6 @@ STEP_COUNTER_MEASUREMENT = "00002b40-0000-1000-8000-00805f9b34fb"
 SLEEP_MONITOR_SERVICE = "00001111-0000-1000-8000-00805f9b34fb"
 SLEEP_MEASUREMENT = "00002b41-0000-1000-8000-00805f9b34fb"
 CHALLENGE_CHAR = "0000c001-0000-1000-8000-00805f9b34fb"
-SECURE_SERVICE = "0000xxxx-0000-1000-8000-00805f9b34fb"
+SECURE_SERVICE = "0000c000-0000-1000-8000-00805f9b34fb"
+SIGN_CHAR = "0000c002-0000-1000-8000-00805f9b34fb"
+PUBLIC_KEY_CHAR = "0000c003-0000-1000-8000-00805f9b34fb"
