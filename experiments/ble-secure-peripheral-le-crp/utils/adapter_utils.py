@@ -1,87 +1,126 @@
 import asyncio
-import dbus_fast
+from dbus_next import Variant
+from dbus_next.aio import MessageBus
+from dbus_next.aio.proxy_object import ProxyObject
 import logging
 # https://dbus-fast.readthedocs.io/en/latest/
-
-logging.basicConfig(
-    level=logging.WARN,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S"
-)
+import dbus_fast
+from dbus_next.aio.proxy_object import ProxyObject
+from bluez_gatt.advertisement import Advertisement
+from bluez_gatt.gatt_agent import Agent
+import traceback
 logger = logging.getLogger(__name__)
 
 
-async def find_adapter_props(bus, wait_seconds=5):
-    """Return (path, props) for the first BlueZ adapter visible on D-Bus."""
+async def set_adapter_alias(proxy_object: ProxyObject, peripheral_name: str):
+    """
+    Set Bluetooth adapter alias
 
-    deadline = asyncio.get_event_loop().time() + wait_seconds
-    while True:
-        try:
-            # introspect the root /org/bluez to see available hci nodes
-            root = await bus.introspect("org.bluez", "/org/bluez")
-            for node in root.nodes:
-                if node.name.startswith("hci0"):
-                    path = f"/org/bluez/{node.name}"
-                    try:
-                        # introspect the data for the node
-                        node_info = await bus.introspect("org.bluez", path)
+    :param proxy_object: Proxy object for the BlueZ adapter (from MessageBus.introspect)
+    :param peripheral_name: Name to set for adapter alias
+    """
+    try:
+        adapter_props = proxy_object.get_interface(
+            "org.freedesktop.DBus.Properties")
 
-                        # we get the proxy object and it should export the interfaces and the nodes specified in the introspected data
-                        proxy = bus.get_proxy_object(
-                            "org.bluez", path, node_info)
+        await adapter_props.call_set("org.bluez.Adapter1",
+                                     "Alias", Variant("s", peripheral_name))
 
-                        # we want to get the proxy interface so we can call methods in order to call the DBus methods, get properties and set properties
-                        # here we want to obtain the org.freedesktiop.DBus.Properties interface so we can get/set BlueZ properties
-                        props = proxy.get_interface(
-                            "org.freedesktop.DBus.Properties")
-
-                        addr = await props.call_get("org.bluez.Adapter1", "Address")
-                        logger.info(
-                            f"Found adapter {path} (Address: {addr.value})")
-                        return path, props
-                    except Exception as e:
-                        print(f"Skipping {path}: {e}")
-                        continue
-        except Exception as e:
-            logger.error(f"Could not introspect /org/bluez: {e}")
-
-        if asyncio.get_event_loop().time() > deadline:
-            logger.error("Timeout waiting for adapter")
-            return None, None
-
-        await asyncio.sleep(0.5)
+        logger.info(
+            f"Setting Alias on {adapter_props.path} -> {peripheral_name}")
+    except Exception:
+        logger.error(
+            f"Failed to set Alias on {adapter_props.path} with name {peripheral_name}")
 
 
-async def set_adapter_alias(bus, name):
-    """Find the active Adapter and set its Alias property"""
+async def register_gatt_application(proxy_object: ProxyObject, path: str):
+    """Registering GATT application"""
+    try:
+        # get the interface so we can call methods
+        # source for methods: https://git.kernel.org/pub/scm/bluetooth/bluez.git/tree/doc/org.bluez.GattManager.rst
+        gatt_props = proxy_object.get_interface("org.bluez.GattManager1")
 
-    adapter_path, props = await find_adapter_props(bus)
-    if adapter_path is None:
-        raise RuntimeError(
-            "No BlueZ adapter exposing Properties found on system bus (tried /org/bluez/hci0..hci5).")
-
-    # Use properties interface to call set method to update the Adapter1.Alias field
-    # D-Bus value is here a string with the signature "s"
-    logger.info(f"Setting Alias on {adapter_path} -> {name}")
-    await props.call_set("org.bluez.Adapter1", "Alias", dbus_fast.Variant("s", name))
-    return adapter_path
-
-
-async def set_adapter_powered(bus):
-    adapter_path, props = await find_adapter_props(bus)
-    if adapter_path is None:
-        raise RuntimeError(
-            "No BlueZ adapter exposing Properties found on system bus (tried /org/bluez/hci0..hci5).")
-    await props.call_set('org.bluez.Adapter1', 'Powered', dbus_fast.Variant('b', True))
-
-    return
+        await gatt_props.call_register_application(path, {})
+        logger.info("GATT Replay Application registered with BlueZ")
+    except Exception:
+        logger.error(
+            "Failed at registering GATT Replay Application with BlueZ")
 
 
-async def set_adapter_discoverable(bus):
-    adapter_path, props = await find_adapter_props(bus)
-    if adapter_path is None:
-        raise RuntimeError(
-            "No BlueZ adapter exposing Properties found on system bus (tried /org/bluez/hci0..hci5).")
-    await props.call_set('org.bluez.Adapter1', 'Discoverable', dbus_fast.Variant('b', True))
+async def cleanup(bus: MessageBus, proxy: ProxyObject, advert_path: str, app_path: str):
+    """Unregister GATT application and advertisement before shutdown."""
+    # Unregister advertisement
+    try:
+        le_adv_mgr = proxy.get_interface("org.bluez.LEAdvertisingManager1")
+        await le_adv_mgr.call_unregister_advertisement(advert_path)
+        logger.info("Unregister advertisement from BlueZ")
+    except Exception as e:
+        logger.warning(f"Failed to unregister advertisement: {e}")
 
-    return
+    # Unregister GATT application
+    try:
+        gatt_mgr = proxy.get_interface("org.bluez.GattManager1")
+        await gatt_mgr.call_unregister_application(app_path)
+        logger.info("Unregistere GATT application from BlueZ")
+    except Exception as e:
+        logger.warning(f"Failed to unregister GATT application: {e}")
+
+    bus.disconnect()
+
+
+async def register_advert(bus: MessageBus, proxy_object: ProxyObject, advert: Advertisement, advert_path: str):
+    """Register a custom Bluetooth LE Advertisement with BlueZ
+
+        :param bus: D-Bus system/session bus
+        :param proxy_object: Bluez proxy object in order to get interface
+        :param advert: Your custom Advertisement implementing the ServiceInterface org.bluez.LEAdvertisement1
+        :param advert_path: The D-Bus object path where the advertisement is exported
+    """
+    try:
+        # export system interface on bluez system bus
+        bus.export(advert_path, advert)
+
+        # register Advertisement on LeAdvertisingManager1
+        le_advert_manager_1 = proxy_object.get_interface(
+            "org.bluez.LEAdvertisingManager1")
+
+        await le_advert_manager_1.call_register_advertisement(advert_path, {})
+        logger.info("Advertisement registered with BlueZ")
+
+    except Exception:
+        logger.error(
+            "Failed at registering Advertisement with BlueZ")
+
+
+async def register_agent(bus: MessageBus, agent: Agent, agent_path: str, capability="DisplayYesNo"):
+    """Register a custom Bluetooth Agent with BlueZ
+
+        :param bus: D-Bus system/session bus
+        :param proxy_object: BlueZ proxy object in order to get the interface
+        :param agent: Your custom Agent implementing the ServiceInterface of org.bluez.Agent
+        :param advert_path: The D-Bus object path where the agent is exported
+    """
+    try:
+        # export system interface on bluez system bus
+        bus.export(agent_path, agent)
+
+        # introspect the bluez root
+        node_info = await bus.introspect("org.bluez", "/org/bluez")
+        bluez_root_proxy = bus.get_proxy_object(
+            "org.bluez", "/org/bluez", node_info)
+
+        agent_manager = bluez_root_proxy.get_interface(
+            "org.bluez.AgentManager1")
+
+        # register Agent on AgentManager1
+        #
+        await agent_manager.call_register_agent(agent_path, capability)
+        logger.info("Agent registered with BlueZ")
+        # set Agent to default
+        await agent_manager.call_request_default_agent(agent_path)
+        logger.info("Agent registered with BlueZ")
+    except Exception:
+        traceback.print_exc()
+
+        logger.error(
+            f"Failed at registern Agent with capability: {capability}")
